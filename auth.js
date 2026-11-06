@@ -10,6 +10,8 @@ const BCRYPT_ROUNDS = 12;
 const DUMMY_HASH = bcrypt.hashSync("dummy-password", BCRYPT_ROUNDS);
 const deleteUserStmt = db.prepare("DELETE FROM users WHERE id = ?");
 const getUserStmt = db.prepare("SELECT id, email FROM users WHERE id = ?");
+const updateUserEmailStmt = db.prepare("UPDATE users SET email = ? WHERE id = ?");
+const updateUserPasswordStmt = db.prepare("UPDATE users SET password_hash = ? WHERE id = ?");
 
 function signToken(user) {
   return jwt.sign({ sub: user.id, email: user.email }, process.env.JWT_SECRET, {
@@ -87,6 +89,43 @@ router.get("/me", requireAuth, (req, res) => {
     return res.status(404).json({ error: "User not found" });
   }
   res.json({ user: { id: row.id, email: row.email } });
+});
+
+router.put("/me", requireAuth, async (req, res) => {
+  const userId = Number(req.user.sub);
+  const row = getUserStmt.get(userId);
+  if (!row) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+  const password = typeof req.body?.password === "string" ? req.body.password : "";
+
+  if (email && !EMAIL_RE.test(email)) {
+    return res.status(400).json({ error: "Invalid email" });
+  }
+  if (password && (password.length < 8 || password.length > 72)) {
+    return res.status(400).json({ error: "Password must be 8-72 characters" });
+  }
+
+  try {
+    if (email && email !== row.email) {
+      updateUserEmailStmt.run(email, userId);
+    }
+    if (password) {
+      const hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+      updateUserPasswordStmt.run(hash, userId);
+    }
+
+    const updated = getUserStmt.get(userId);
+    res.json({ user: { id: updated.id, email: updated.email }, token: signToken(updated) });
+  } catch (err) {
+    if (err.code === "SQLITE_CONSTRAINT_UNIQUE") {
+      return res.status(409).json({ error: "Email already registered" });
+    }
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
 });
 
 router.delete("/me", requireAuth, (req, res) => {
