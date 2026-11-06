@@ -6,7 +6,8 @@
     "start": "node --env-file=.env server.js",
     "dev": "node --watch --env-file=.env server.js",
     "test": "node --test",
-    "lint": "node --check server.js"
+    "lint": "node --check server.js",
+    "syntax": "node --check auth.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
