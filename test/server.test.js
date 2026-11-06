@@ -319,3 +319,58 @@ test("PUT /auth/me with empty body returns current user", async () => {
   assert.deepEqual(result.user, { id: 1, email: "both-updated@example.com" });
   assert.equal(typeof result.token, "string");
 });
+
+test("PUT /auth/me normalizes the new email and accepts the same email as current", async () => {
+  const signup = await postJson("/auth/signup", {
+    email: "normalize@example.com",
+    password: "original-pass-1",
+  });
+  const { user, token } = await signup.json();
+
+  const response = await putJson("/auth/me", { email: "  Changed@Example.COM " }, token);
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).user, { id: user.id, email: "changed@example.com" });
+
+  const sameEmail = await putJson("/auth/me", { email: "changed@example.com" }, token);
+  assert.equal(sameEmail.status, 200);
+  assert.deepEqual((await sameEmail.json()).user, { id: user.id, email: "changed@example.com" });
+
+  const loginNew = await postJson("/auth/login", {
+    email: "changed@example.com",
+    password: "original-pass-1",
+  });
+  assert.equal(loginNew.status, 200);
+
+  const loginOld = await postJson("/auth/login", {
+    email: "normalize@example.com",
+    password: "original-pass-1",
+  });
+  assert.equal(loginOld.status, 401);
+});
+
+test("PUT /auth/me ignores non-string fields and rejects the old password after a change", async () => {
+  const signup = await postJson("/auth/signup", {
+    email: "types@example.com",
+    password: "original-pass-2",
+  });
+  const { user, token } = await signup.json();
+
+  const ignored = await putJson("/auth/me", { email: 123, password: true }, token);
+  assert.equal(ignored.status, 200);
+  assert.deepEqual((await ignored.json()).user, { id: user.id, email: "types@example.com" });
+
+  const changed = await putJson("/auth/me", { password: "replaced-pass-3" }, token);
+  assert.equal(changed.status, 200);
+
+  const oldPassword = await postJson("/auth/login", {
+    email: "types@example.com",
+    password: "original-pass-2",
+  });
+  assert.equal(oldPassword.status, 401);
+
+  const newPassword = await postJson("/auth/login", {
+    email: "types@example.com",
+    password: "replaced-pass-3",
+  });
+  assert.equal(newPassword.status, 200);
+});
