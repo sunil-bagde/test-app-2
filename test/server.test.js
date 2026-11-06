@@ -142,3 +142,180 @@ test("GET /auth/me requires a valid token and returns the authenticated user", a
     user: { id: 1, email: "test@example.com" },
   });
 });
+
+async function putJson(path, body, token) {
+  return fetch(`${baseUrl}${path}`, {
+    method: "PUT",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+test("PUT /auth/me requires authentication", async () => {
+  const noToken = await fetch(`${baseUrl}/auth/me`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "new@example.com" }),
+  });
+  assert.equal(noToken.status, 401);
+  assert.deepEqual(await noToken.json(), { error: "Missing token" });
+
+  const badToken = await fetch(`${baseUrl}/auth/me`, {
+    method: "PUT",
+    headers: {
+      "content-type": "application/json",
+      authorization: "Bearer invalid-token",
+    },
+    body: JSON.stringify({ email: "new@example.com" }),
+  });
+  assert.equal(badToken.status, 401);
+  assert.deepEqual(await badToken.json(), { error: "Invalid or expired token" });
+});
+
+test("PUT /auth/me updates email correctly", async () => {
+  const login = await postJson("/auth/login", {
+    email: "test@example.com",
+    password: credentials.password,
+  });
+  const { token } = await login.json();
+
+  const response = await putJson("/auth/me", { email: "updated@example.com" }, token);
+  const result = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(result.user, { id: 1, email: "updated@example.com" });
+  assert.equal(typeof result.token, "string");
+
+  const login2 = await postJson("/auth/login", {
+    email: "updated@example.com",
+    password: credentials.password,
+  });
+  assert.equal(login2.status, 200);
+});
+
+test("PUT /auth/me updates password correctly", async () => {
+  const login = await postJson("/auth/login", {
+    email: "updated@example.com",
+    password: credentials.password,
+  });
+  const { token } = await login.json();
+
+  const response = await putJson("/auth/me", { password: "new-password-123" }, token);
+  const result = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(result.user.email, "updated@example.com");
+  assert.equal(typeof result.token, "string");
+
+  const login2 = await postJson("/auth/login", {
+    email: "updated@example.com",
+    password: "new-password-123",
+  });
+  assert.equal(login2.status, 200);
+});
+
+test("PUT /auth/me updates both email and password", async () => {
+  const login = await postJson("/auth/login", {
+    email: "updated@example.com",
+    password: "new-password-123",
+  });
+  const { token } = await login.json();
+
+  const response = await putJson(
+    "/auth/me",
+    { email: "both-updated@example.com", password: "another-password-456" },
+    token
+  );
+  const result = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(result.user, { id: 1, email: "both-updated@example.com" });
+
+  const login2 = await postJson("/auth/login", {
+    email: "both-updated@example.com",
+    password: "another-password-456",
+  });
+  assert.equal(login2.status, 200);
+});
+
+test("PUT /auth/me validates email format", async () => {
+  const login = await postJson("/auth/login", {
+    email: "both-updated@example.com",
+    password: "another-password-456",
+  });
+  const { token } = await login.json();
+
+  const response = await putJson("/auth/me", { email: "not-an-email" }, token);
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), { error: "Invalid email" });
+});
+
+test("PUT /auth/me validates password length", async () => {
+  const login = await postJson("/auth/login", {
+    email: "both-updated@example.com",
+    password: "another-password-456",
+  });
+  const { token } = await login.json();
+
+  const short = await putJson("/auth/me", { password: "short" }, token);
+  assert.equal(short.status, 400);
+  assert.deepEqual(await short.json(), { error: "Password must be 8-72 characters" });
+
+  const long = await putJson("/auth/me", { password: "x".repeat(73) }, token);
+  assert.equal(long.status, 400);
+  assert.deepEqual(await long.json(), { error: "Password must be 8-72 characters" });
+});
+
+test("PUT /auth/me rejects duplicate email", async () => {
+  const signup2 = await postJson("/auth/signup", {
+    email: "other@example.com",
+    password: "some-password-123",
+  });
+  assert.equal(signup2.status, 201);
+
+  const login = await postJson("/auth/login", {
+    email: "other@example.com",
+    password: "some-password-123",
+  });
+  const { token } = await login.json();
+
+  const response = await putJson("/auth/me", { email: "both-updated@example.com" }, token);
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), { error: "Email already registered" });
+});
+
+test("PUT /auth/me returns 404 for deleted user", async () => {
+  const signup3 = await postJson("/auth/signup", {
+    email: "to-delete@example.com",
+    password: "delete-me-password",
+  });
+  const { token } = await signup3.json();
+
+  const deleteResp = await fetch(`${baseUrl}/auth/me`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${token}` },
+  });
+  assert.equal(deleteResp.status, 204);
+
+  const response = await putJson("/auth/me", { email: "survived@example.com" }, token);
+  assert.equal(response.status, 404);
+  assert.deepEqual(await response.json(), { error: "User not found" });
+});
+
+test("PUT /auth/me with empty body returns current user", async () => {
+  const login = await postJson("/auth/login", {
+    email: "both-updated@example.com",
+    password: "another-password-456",
+  });
+  const { token } = await login.json();
+
+  const response = await putJson("/auth/me", {}, token);
+  const result = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(result.user, { id: 1, email: "both-updated@example.com" });
+  assert.equal(typeof result.token, "string");
+});
