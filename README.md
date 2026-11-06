@@ -38,7 +38,7 @@ A small Express authentication API with signup, login, and a protected `/auth/me
 
    The server prints `Listening on http://localhost:3000` when it is ready.
 
-   > Note: `package.json` defines `start` and `dev` scripts that point to `src/server.js`, but the entry point is `server.js` in the project root. Until those scripts are corrected, use the command above.
+   Or run `yarn start` (or `yarn dev` to restart on file changes).
 
 ## API
 
