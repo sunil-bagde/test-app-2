@@ -9,6 +9,7 @@ const BCRYPT_ROUNDS = 12;
 // Used to keep login timing similar when the email does not exist.
 const DUMMY_HASH = bcrypt.hashSync("dummy-password", BCRYPT_ROUNDS);
 const deleteUserStmt = db.prepare("DELETE FROM users WHERE id = ?");
+const getUserStmt = db.prepare("SELECT id, email FROM users WHERE id = ?");
 
 function signToken(user) {
   return jwt.sign({ sub: user.id, email: user.email }, process.env.JWT_SECRET, {
@@ -81,7 +82,11 @@ router.post("/login", async (req, res) => {
 });
 
 router.get("/me", requireAuth, (req, res) => {
-  res.json({ user: { id: req.user.sub, email: req.user.email } });
+  const row = getUserStmt.get(Number(req.user.sub));
+  if (!row) {
+    return res.status(404).json({ error: "User not found" });
+  }
+  res.json({ user: { id: row.id, email: row.email } });
 });
 
 router.delete("/me", requireAuth, (req, res) => {
