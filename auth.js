@@ -83,4 +83,17 @@ router.get("/me", requireAuth, (req, res) => {
   res.json({ user: { id: req.user.sub, email: req.user.email } });
 });
 
+router.delete("/me", requireAuth, (req, res) => {
+  try {
+    const info = db.prepare("DELETE FROM users WHERE id = ?").run(req.user.sub);
+    if (info.changes === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    res.status(204).end();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 export default router;
